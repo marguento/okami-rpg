@@ -112,9 +112,17 @@ struct EquipmentView: View {
                     Text(eq.name)
                         .font(.system(.caption, design: .monospaced).weight(.semibold))
                         .foregroundColor(.white)
+                    // Stat bonuses row
+                    HStack(spacing: 6) {
+                        if eq.atk   != 0 { equipStatTag("+\(eq.atk) ATK",        "#dd7744") }
+                        if eq.def   != 0 { equipStatTag("+\(eq.def) DEF",         "#4488cc") }
+                        if eq.spell != 0 { equipStatTag("+\(eq.spell) SPL",       "#9966cc") }
+                        if eq.hp    != 0 { equipStatTag("+\(eq.hp) HP",           "#44bb44") }
+                        if eq.crit  != 0 { equipStatTag("+\(Int(eq.crit*100))% CRIT", "#cccc44") }
+                    }
                     Text(eq.desc)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(Color(hex: "#888888"))
+                        .foregroundColor(Color(hex: "#666666"))
                 } else {
                     Text("— empty —")
                         .font(.system(.caption, design: .monospaced))
@@ -141,6 +149,17 @@ struct EquipmentView: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(
             equipped != nil ? Color(hex: "#334455") : Color(hex: "#222222"), lineWidth: 1))
         .cornerRadius(6)
+    }
+
+    private func equipStatTag(_ text: String, _ hex: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, design: .monospaced).weight(.semibold))
+            .foregroundColor(Color(hex: hex))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(Color(hex: hex).opacity(0.12))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color(hex: hex).opacity(0.35), lineWidth: 0.5))
+            .cornerRadius(3)
     }
 
     private func statView(_ label: String, _ value: String) -> some View {

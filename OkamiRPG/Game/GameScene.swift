@@ -30,6 +30,7 @@ final class GameScene: SKScene {
     private var lastEnemyPos:    [UUID: (x: Int, y: Int)] = [:]
     private var enemyFacing:     [UUID: String] = [:]
     private var lastEnemyTarget: [UUID: CGPoint] = [:]
+    private var lastProjPos:   [UUID: CGPoint] = [:]
 
     // Texture cache — nearest-neighbor filtering for crisp pixel art
     private var textureCache: [String: SKTexture] = [:]
@@ -101,25 +102,37 @@ final class GameScene: SKScene {
             }
         }
 
-        // Torches — glow halo + bright dot
+        // Torches — container controls visibility; children animate independently
         for t in state.torches {
+            let container = SKNode()
+            container.position = worldPos(t.x, t.y)
+            container.name = "torch"
+            container.alpha = 0
+            tileLayer.addChild(container)
+
             let glow = SKSpriteNode(color: UIColor(hex: "#ffaa33").withAlphaComponent(0.22),
                                     size: CGSize(width: TS * 3.5, height: TS * 3.5))
-            glow.position = worldPos(t.x, t.y)
-            glow.zPosition = 0.3
-            glow.blendMode = .add
-            glow.name = "torch_glow"
-            tileLayer.addChild(glow)
+            glow.zPosition = 0.3; glow.blendMode = .add
+            container.addChild(glow)
+            glow.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.group([SKAction.fadeAlpha(to: 0.34, duration: 0.45),
+                                SKAction.scale(to: 1.15, duration: 0.45)]),
+                SKAction.group([SKAction.fadeAlpha(to: 0.13, duration: 0.35),
+                                SKAction.scale(to: 0.87, duration: 0.35)]),
+                SKAction.group([SKAction.fadeAlpha(to: 0.22, duration: 0.28),
+                                SKAction.scale(to: 1.0,  duration: 0.28)])
+            ])))
 
             let dot = SKShapeNode(circleOfRadius: 4)
             dot.fillColor   = UIColor(hex: "#ffcc55")
             dot.strokeColor = UIColor(hex: "#ff8800")
-            dot.lineWidth   = 1.5
-            dot.glowWidth   = 3
-            dot.position    = worldPos(t.x, t.y)
-            dot.zPosition   = 0.4
-            dot.name        = "torch_dot"
-            tileLayer.addChild(dot)
+            dot.lineWidth   = 1.5; dot.glowWidth = 3; dot.zPosition = 0.4
+            container.addChild(dot)
+            dot.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.scale(to: 1.35, duration: 0.3),
+                SKAction.scale(to: 0.75, duration: 0.42),
+                SKAction.scale(to: 1.0,  duration: 0.18)
+            ])))
         }
 
         rebuildEntities()
@@ -161,7 +174,7 @@ final class GameScene: SKScene {
             }
         }
         for node in tileLayer.children {
-            guard node.name == "torch_glow" || node.name == "torch_dot" else { continue }
+            guard node.name == "torch" else { continue }
             let tx = Int((node.position.x + CGFloat(GRID_W) * TS / 2 - TS / 2) / TS)
             let ty = Int((-node.position.y + CGFloat(GRID_H) * TS / 2 - TS / 2) / TS)
             if tx >= 0, ty >= 0, tx < GRID_W, ty < GRID_H {
@@ -371,13 +384,19 @@ final class GameScene: SKScene {
         for id in projNodes.keys where !liveIDs.contains(id) {
             projNodes[id]?.removeFromParent()
             projNodes.removeValue(forKey: id)
+            lastProjPos.removeValue(forKey: id)
         }
         for proj in state.projectiles {
             let wx = proj.px - CGFloat(GRID_W) * TS / 2
             let wy = CGFloat(GRID_H) * TS / 2 - proj.py
             let wpos = CGPoint(x: wx, y: wy)
             if let n = projNodes[proj.uid] {
-                n.position = wpos
+                let prev = lastProjPos[proj.uid]
+                if prev == nil || prev! != wpos {
+                    if let p = prev { spawnProjTrail(at: p, color: proj.color) }
+                    n.run(SKAction.move(to: wpos, duration: 0.09), withKey: "projMove")
+                    lastProjPos[proj.uid] = wpos
+                }
             } else {
                 let container = SKNode()
                 container.position = wpos
@@ -495,6 +514,25 @@ final class GameScene: SKScene {
             SKAction.moveBy(x: lx, y: ly, duration: isWallBump ? 0.05 : 0.07),
             SKAction.moveBy(x: -lx, y: -ly, duration: isWallBump ? 0.09 : 0.11)
         ]), withKey: "lunge")
+    }
+
+    // MARK: — Projectile trail
+
+    private func spawnProjTrail(at pos: CGPoint, color: String) {
+        let trail = SKShapeNode(circleOfRadius: 3.5)
+        trail.fillColor   = UIColor(hex: color).withAlphaComponent(0.55)
+        trail.strokeColor = .clear
+        trail.blendMode   = .add
+        trail.position    = pos
+        trail.zPosition   = 3
+        projLayer.addChild(trail)
+        trail.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeOut(withDuration: 0.22),
+                SKAction.scale(to: 0.3, duration: 0.22)
+            ]),
+            SKAction.removeFromParent()
+        ]))
     }
 
     // MARK: — Enemy attack lunge

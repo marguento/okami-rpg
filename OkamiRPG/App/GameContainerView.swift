@@ -10,10 +10,11 @@ struct GameContainerView: View {
         s.scaleMode = .resizeFill
         return s
     }()
-    @State private var showLog      = false
-    @State private var showMinimap  = false
-    @State private var hitFlashAmt: Double = 0
-    @State private var turnFlashAmt: Double = 0
+    @State private var showLog        = false
+    @State private var showMinimap    = false
+    @State private var hitFlashAmt:   Double = 0
+    @State private var turnFlashAmt:  Double = 0
+    @State private var floorFadeAmt:  Double = 0
     @FocusState private var gameFocused: Bool
 
     var body: some View {
@@ -27,6 +28,7 @@ struct GameContainerView: View {
                     gameFocused = true
                 }
                 .onChange(of: state.floor) { _, _ in scene.rebuild() }
+                // Floor transition: called by stairs alert after the fade
                 // Swipe-to-move on the map area
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 22)
@@ -41,6 +43,11 @@ struct GameContainerView: View {
                             }
                         }
                 )
+
+            // Floor transition fade-to-black
+            if floorFadeAmt > 0 {
+                Color.black.opacity(floorFadeAmt).ignoresSafeArea().allowsHitTesting(false)
+            }
 
             // Screen-edge flash when player takes a hit (red vignette)
             if hitFlashAmt > 0 {
@@ -130,9 +137,13 @@ struct GameContainerView: View {
                 state.stairsPending = false
                 AudioEngine.shared.play(.stairs)
                 HapticEngine.medium()
-                state.floor += 1
-                state.runFloors = state.floor
-                enterFloor(state: state)
+                withAnimation(.easeIn(duration: 0.28)) { floorFadeAmt = 1.0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                    state.floor += 1
+                    state.runFloors = state.floor
+                    enterFloor(state: state)
+                    withAnimation(.easeOut(duration: 0.55).delay(0.08)) { floorFadeAmt = 0 }
+                }
             }
             Button("Stay", role: .cancel) {
                 state.stairsPending = false
