@@ -213,6 +213,7 @@ final class GameState {
     var pendingEntityFlashColors: [String] = []   // corresponding overlay colors
     var pendingPlayerLunge: Point? = nil           // attack lunge direction (dx,dy as x,y)
     var pendingEnemyLunges: [(uid: UUID, dx: Int, dy: Int)] = []
+    var pendingTileRebuild: [Point] = []           // tile positions that changed type mid-floor
     var sceneNeedsRebuild: Bool = false
     var levelUpPending: Bool = false
     var pendingPlayerHit: Bool = false

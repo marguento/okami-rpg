@@ -3,7 +3,7 @@ import Foundation
 // MARK: — Player movement
 
 func movePlayer(state: GameState, dx: Int, dy: Int) {
-    guard !state.isDead, !state.isVictory else { return }
+    guard !state.isDead, !state.isVictory, !state.stairsPending else { return }
     guard state.player.stunned <= 0 else {
         state.player.stunned -= 1
         state.addLog("Stunned — cannot move", .combat)
@@ -38,6 +38,7 @@ func movePlayer(state: GameState, dx: Int, dy: Int) {
         AudioEngine.shared.play(.door)
         state.addLog("Door opened.", .normal)
         state.pendingFlashes.append((x: nx, y: ny, color: "#aa8833"))
+        state.pendingTileRebuild.append(Point(x: nx, y: ny))
         endPlayerTurn(state: state)
         return
     }
@@ -454,18 +455,29 @@ private func skillWarcry(state: GameState) {
 private func skillFireball(state: GameState) {
     let dmg = max(1, state.player.spell * 3)
     if let idx = firstAimedEnemy(state: state) {
+        let ex = state.enemies[idx].x; let ey = state.enemies[idx].y
         state.enemies[idx].hp -= dmg
         state.enemies[idx].poisonedTurns = 2
         state.addLog("Fireball: -\(dmg) + burn!", .spell)
-        state.pendingDamageFloats.append((x: state.enemies[idx].x, y: state.enemies[idx].y,
-                                          text: "F\(dmg)", color: "#ff6600"))
+        state.pendingDamageFloats.append((x: ex, y: ey, text: "🔥\(dmg)", color: "#ff6600"))
+        state.pendingFlashes.append((x: ex, y: ey, color: "#ff5500"))
+        state.pendingEntityFlashUIDs.append(state.enemies[idx].uid)
+        state.pendingEntityFlashColors.append("#ff6600")
+        // Flash player tile too (cast animation)
+        state.pendingFlashes.append((x: state.player.x, y: state.player.y, color: "#ff3300"))
         if state.enemies[idx].hp <= 0 { killEnemy(state: state, idx: idx) }
     }
-    AudioEngine.shared.play(.spellFire)
+    AudioEngine.shared.play(.spellFire); HapticEngine.medium()
 }
 private func skillFreeze(state: GameState) {
     let nearby = nearbyEnemies(state: state, radius: 2)
-    for i in nearby { state.enemies[i].frozenTurns = 2 }
+    for i in nearby {
+        state.enemies[i].frozenTurns = 2
+        state.pendingFlashes.append((x: state.enemies[i].x, y: state.enemies[i].y, color: "#44aaff"))
+        state.pendingEntityFlashUIDs.append(state.enemies[i].uid)
+        state.pendingEntityFlashColors.append("#88ddff")
+    }
+    state.pendingFlashes.append((x: state.player.x, y: state.player.y, color: "#2266ff"))
     state.addLog("Freeze: \(nearby.count) enemies frozen!", .spell)
     AudioEngine.shared.play(.spellIce); HapticEngine.medium()
 }
@@ -480,10 +492,14 @@ private func skillLightning(state: GameState) {
     for i in targets {
         state.enemies[i].hp -= dmg
         state.pendingDamageFloats.append((x: state.enemies[i].x, y: state.enemies[i].y,
-                                          text: "L\(dmg)", color: "#ccccff"))
+                                          text: "⚡\(dmg)", color: "#ddddff"))
+        state.pendingFlashes.append((x: state.enemies[i].x, y: state.enemies[i].y, color: "#aaaaff"))
+        state.pendingEntityFlashUIDs.append(state.enemies[i].uid)
+        state.pendingEntityFlashColors.append("#ffffff")
         if state.enemies[i].hp <= 0 { toKill.append(i) }
         hit += 1
     }
+    state.pendingFlashes.append((x: state.player.x, y: state.player.y, color: "#8888ff"))
     state.addLog("Lightning chains \(hit) enemies!", .spell)
     for i in toKill.reversed() { killEnemy(state: state, idx: i) }
     AudioEngine.shared.play(.spellLightning); HapticEngine.heavy()

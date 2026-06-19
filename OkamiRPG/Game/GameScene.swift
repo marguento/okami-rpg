@@ -147,6 +147,7 @@ final class GameScene: SKScene {
         if state.sceneNeedsRebuild { state.sceneNeedsRebuild = false; rebuild(); return }
         // Map cleared by enterFloor — skip until rebuild on new floor
         guard state.map.count == GRID_H else { return }
+        drainTileRebuilds(state: state)
         updateVisibility(state: state)
         syncEntities(state: state)
         syncItems(state: state)
@@ -157,6 +158,22 @@ final class GameScene: SKScene {
         drainPlayerLunge(state: state)
         drainEnemyLunges(state: state)
         updateCamera()
+    }
+
+    // MARK: — Tile type change (e.g. door → doorOpen)
+
+    private func drainTileRebuilds(state: GameState) {
+        guard !state.pendingTileRebuild.isEmpty else { return }
+        for pt in state.pendingTileRebuild {
+            guard pt.y < tileNodes.count, pt.x < tileNodes[pt.y].count else { continue }
+            tileNodes[pt.y][pt.x]?.removeFromParent()
+            let newNode = makeTileNode(state.map[pt.y][pt.x], x: pt.x, y: pt.y)
+            newNode.position = worldPos(pt.x, pt.y)
+            newNode.alpha    = 0
+            tileLayer.addChild(newNode)
+            tileNodes[pt.y][pt.x] = newNode
+        }
+        state.pendingTileRebuild.removeAll()
     }
 
     // MARK: — Visibility
@@ -250,10 +267,12 @@ final class GameScene: SKScene {
         for id in deadIDs {
             if let deadNode = entityNodes[id] {
                 spawnKillBurst(at: deadNode.position)
+                deadNode.removeAllActions()          // stop move/lunge so they don't fight fade
+                deadNode.isHidden = false            // ensure visible for fade (not hidden by visibility)
                 deadNode.run(SKAction.sequence([
-                    SKAction.fadeOut(withDuration: 0.18),
+                    SKAction.fadeAlpha(to: 0, duration: 0.22),
                     SKAction.removeFromParent()
-                ]), withKey: "death")
+                ]))
             }
             entityNodes.removeValue(forKey: id)
             lastEnemyPos.removeValue(forKey: id)
@@ -739,20 +758,26 @@ final class GameScene: SKScene {
         switch tile {
         case .floor, .doorOpen:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            container.addChild(base)
+            base.zPosition = 0; container.addChild(base)
+            // Thin grid line so passable tiles are unmistakably distinct from walls
+            let grid = SKShapeNode(rect: CGRect(x: -TS*0.48, y: -TS*0.48,
+                                                width: TS*0.96, height: TS*0.96))
+            grid.fillColor   = .clear
+            grid.strokeColor = UIColor(hex: "#665533").withAlphaComponent(0.38)
+            grid.lineWidth   = 0.6; grid.zPosition = 0.1
+            container.addChild(grid)
 
         case .wall:
             let base = SKSpriteNode(texture: wallTex, size: size)
             base.zPosition = 0
-            base.color = UIColor(hex: "#334466"); base.colorBlendFactor = 0.25
+            // Strong blue-grey tint — very different from the warm floor
+            base.color = UIColor(hex: "#0d1a2e"); base.colorBlendFactor = 0.60
             container.addChild(base)
-            // Thin bright edge line on top — creates depth separation from floor
-            let edge = SKSpriteNode(color: UIColor(hex: "#6688aa").withAlphaComponent(0.55),
-                                    size: CGSize(width: TS, height: 1.5))
-            edge.position  = CGPoint(x: 0, y: TS * 0.48)
-            edge.zPosition = 0.2
-            container.addChild(edge)
+            // Bright top-edge line to show wall "height"
+            let edge = SKSpriteNode(color: UIColor(hex: "#5577aa").withAlphaComponent(0.70),
+                                    size: CGSize(width: TS, height: 2))
+            edge.position  = CGPoint(x: 0, y: TS * 0.475)
+            edge.zPosition = 0.2; container.addChild(edge)
 
         case .secret:
             let base = SKSpriteNode(texture: floorTex, size: size)
