@@ -124,6 +124,28 @@ func generateFloor(state: GameState) {
         }}
     }
 
+    // Widen 1-tile corridors → 2 tiles wide for easier navigation.
+    // Doors also span both tiles so they can't be walked around.
+    let prewiden = map
+    var wideDoors: [Point] = []
+    for y in 1..<GRID_H - 2 {
+        for x in 1..<GRID_W - 2 {
+            let t = prewiden[y][x]
+            guard t == .floor || t == .door else { continue }
+            // Horizontal corridor (wall above AND below) → widen downward
+            if prewiden[y-1][x] == .wall && prewiden[y+1][x] == .wall {
+                map[y+1][x] = (t == .door) ? .door : .floor
+                if t == .door { wideDoors.append(Point(x: x, y: y+1)) }
+            }
+            // Vertical corridor (wall left AND right) → widen rightward
+            if prewiden[y][x-1] == .wall && prewiden[y][x+1] == .wall {
+                map[y][x+1] = (t == .door) ? .door : .floor
+                if t == .door { wideDoors.append(Point(x: x+1, y: y)) }
+            }
+        }
+    }
+    doors.append(contentsOf: wideDoors)
+
     state.map = map; state.rooms = rooms; state.doors = doors
     state.vis  = Array(repeating: Array(repeating: false, count: GRID_W), count: GRID_H)
     state.seen = Array(repeating: Array(repeating: false, count: GRID_W), count: GRID_H)

@@ -142,6 +142,7 @@ final class GameScene: SKScene {
         drainDamageFloats(state: state)
         drainEntityFlashes(state: state)
         drainPlayerLunge(state: state)
+        drainEnemyLunges(state: state)
         updateCamera()
     }
 
@@ -262,6 +263,16 @@ final class GameScene: SKScene {
                 if let sprite = n.childNode(withName: "sprite") as? SKSpriteNode {
                     sprite.texture = loadTexture("\(enemySpriteName(e.templateId ?? ""))_\(dir)")
                     sprite.alpha = (e.template.invisible && !e.revealed) ? 0.25 : 1.0
+                    // Status effect tint — resets every frame so hit flash overlay still works
+                    if e.frozenTurns > 0 {
+                        sprite.color = UIColor(hex: "#aaddff"); sprite.colorBlendFactor = 0.65
+                    } else if e.poisonedTurns > 0 {
+                        sprite.color = UIColor(hex: "#44ee44"); sprite.colorBlendFactor = 0.55
+                    } else if e.stunTurns > 0 {
+                        sprite.color = UIColor(hex: "#ffee44"); sprite.colorBlendFactor = 0.55
+                    } else {
+                        sprite.color = UIColor(hex: e.template.color); sprite.colorBlendFactor = 0.45
+                    }
                 }
 
                 let enemyTarget = worldPos(e.x, e.y)
@@ -465,21 +476,41 @@ final class GameScene: SKScene {
         state.pendingEntityFlashColors.removeAll()
     }
 
-    // MARK: — Player attack lunge
+    // MARK: — Player lunge (attack) and wall bump
 
     private func drainPlayerLunge(state: GameState) {
         guard let dir = state.pendingPlayerLunge else { return }
         state.pendingPlayerLunge = nil
         guard let pNode = entityNodes[playerKey] else { return }
-        // Snap to exact tile first (may be mid-animation), then lunge forward and return
+
+        let dest = Point(x: state.player.x + dir.x, y: state.player.y + dir.y)
+        let isWallBump = !state.enemies.contains { $0.x == dest.x && $0.y == dest.y }
+        let mag: CGFloat = isWallBump ? 0.22 : 0.38
+
         pNode.removeAction(forKey: "move")
         if !lastSpriteTarget.x.isInfinite { pNode.position = lastSpriteTarget }
-        let lx = CGFloat(dir.x) * TS * 0.38
-        let ly = -CGFloat(dir.y) * TS * 0.38
+        let lx = CGFloat(dir.x) * TS * mag
+        let ly = -CGFloat(dir.y) * TS * mag
         pNode.run(SKAction.sequence([
-            SKAction.moveBy(x: lx, y: ly, duration: 0.07),
-            SKAction.moveBy(x: -lx, y: -ly, duration: 0.11)
+            SKAction.moveBy(x: lx, y: ly, duration: isWallBump ? 0.05 : 0.07),
+            SKAction.moveBy(x: -lx, y: -ly, duration: isWallBump ? 0.09 : 0.11)
         ]), withKey: "lunge")
+    }
+
+    // MARK: — Enemy attack lunge
+
+    private func drainEnemyLunges(state: GameState) {
+        for lunge in state.pendingEnemyLunges {
+            guard let node = entityNodes[lunge.uid] else { continue }
+            let lx = CGFloat(lunge.dx) * TS * 0.30
+            let ly = -CGFloat(lunge.dy) * TS * 0.30
+            node.run(SKAction.sequence([
+                SKAction.wait(forDuration: 0.10),
+                SKAction.moveBy(x: lx, y: ly, duration: 0.07),
+                SKAction.moveBy(x: -lx, y: -ly, duration: 0.11)
+            ]), withKey: "enemyLunge")
+        }
+        state.pendingEnemyLunges.removeAll()
     }
 
     // MARK: — Kill burst particles
@@ -552,6 +583,21 @@ final class GameScene: SKScene {
 
     // MARK: — Tile node factory
 
+    private func makeSpecialGlow(color: String, radius: CGFloat, period: Double) -> SKShapeNode {
+        let glow = SKShapeNode(circleOfRadius: radius)
+        glow.fillColor   = UIColor(hex: color).withAlphaComponent(0.22)
+        glow.strokeColor = UIColor(hex: color).withAlphaComponent(0.85)
+        glow.lineWidth   = 1.5
+        glow.glowWidth   = 10
+        glow.zPosition   = 0.6
+        glow.blendMode   = .add
+        glow.run(SKAction.repeatForever(SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.9, duration: period),
+            SKAction.fadeAlpha(to: 0.15, duration: period)
+        ])))
+        return glow
+    }
+
     private func makeTileNode(_ tile: Tile, x: Int, y: Int) -> SKNode {
         let container = SKNode()
         let size = CGSize(width: TS, height: TS)
@@ -583,27 +629,24 @@ final class GameScene: SKScene {
 
         case .stairs:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            container.addChild(base)
+            base.zPosition = 0; container.addChild(base)
             let obj = SKSpriteNode(texture: loadTexture("stairs"), size: size)
-            obj.zPosition = 0.5
-            container.addChild(obj)
+            obj.zPosition = 0.5; container.addChild(obj)
+            container.addChild(makeSpecialGlow(color: "#44ff88", radius: TS * 0.38, period: 1.0))
 
         case .shop:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            container.addChild(base)
+            base.zPosition = 0; container.addChild(base)
             let obj = SKSpriteNode(texture: loadTexture("shop"), size: size)
-            obj.zPosition = 0.5
-            container.addChild(obj)
+            obj.zPosition = 0.5; container.addChild(obj)
+            container.addChild(makeSpecialGlow(color: "#ffcc33", radius: TS * 0.32, period: 1.2))
 
         case .altar:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            container.addChild(base)
+            base.zPosition = 0; container.addChild(base)
             let obj = SKSpriteNode(texture: loadTexture("altar"), size: size)
-            obj.zPosition = 0.5
-            container.addChild(obj)
+            obj.zPosition = 0.5; container.addChild(obj)
+            container.addChild(makeSpecialGlow(color: "#cc44ff", radius: TS * 0.32, period: 1.4))
         }
 
         return container

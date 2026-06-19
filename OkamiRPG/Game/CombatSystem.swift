@@ -25,7 +25,9 @@ func movePlayer(state: GameState, dx: Int, dy: Int) {
 
     let tile = state.map[ny][nx]
     guard tile != .wall else {
-        state.pendingFlashes.append((x: nx, y: ny, color: "#333355"))
+        // Visible flash at wall tile + bump animation on player sprite
+        state.pendingFlashes.append((x: nx, y: ny, color: "#5588dd"))
+        state.pendingPlayerLunge = Point(x: dx, y: dy)
         return
     }
 
@@ -63,8 +65,18 @@ func movePlayer(state: GameState, dx: Int, dy: Int) {
         if state.floor >= MAX_FLOORS {
             triggerVictory(state: state)
         } else {
-            state.stairsPending = true  // alert shown in GameContainerView
+            state.stairsPending = true
         }
+        return
+    case .shop:
+        AudioEngine.shared.play(.door); HapticEngine.light()
+        state.addLog("The merchant awaits...", .narr)
+        state.screen = .shop
+        return
+    case .altar:
+        AudioEngine.shared.play(.door); HapticEngine.light()
+        state.addLog("The Dark Altar pulses with dark energy...", .narr)
+        state.screen = .altar
         return
     case .secret:
         let isNew = !state.isSeen(Point(x: nx, y: ny))
@@ -344,6 +356,10 @@ func enemyAttack(state: GameState, enemy: Enemy) {
         }
     }
 
+    // Enemy lunge toward player
+    let eLungeDx = state.player.x > enemy.x ? 1 : state.player.x < enemy.x ? -1 : 0
+    let eLungeDy = state.player.y > enemy.y ? 1 : state.player.y < enemy.y ? -1 : 0
+    state.pendingEnemyLunges.append((uid: enemy.uid, dx: eLungeDx, dy: eLungeDy))
     state.player.hp -= dmg
     state.pendingFlashes.append((x: state.player.x, y: state.player.y, color: "#cc0000"))
     // Player hit flash on sprite
