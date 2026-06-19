@@ -169,7 +169,7 @@ final class GameScene: SKScene {
                 let seen = state.seen[y][x]
                 let tile = state.map[y][x]
                 if vis        { n.alpha = 1.0 }
-                else if seen  { n.alpha = tile == .wall ? 0.32 : 0.22 }
+                else if seen  { n.alpha = tile == .wall ? 0.55 : 0.28 }
                 else          { n.alpha = 0 }
             }
         }
@@ -328,7 +328,10 @@ final class GameScene: SKScene {
     private func syncItems(state: GameState) {
         let liveIDs = Set(state.items.map { $0.uid })
         for id in itemNodes.keys where !liveIDs.contains(id) {
-            itemNodes[id]?.removeFromParent()
+            if let node = itemNodes[id] {
+                spawnPickupBurst(at: node.position)
+                node.removeFromParent()
+            }
             itemNodes.removeValue(forKey: id)
         }
         for item in state.items {
@@ -474,25 +477,78 @@ final class GameScene: SKScene {
     private func drainEntityFlashes(state: GameState) {
         for (uid, colorHex) in zip(state.pendingEntityFlashUIDs, state.pendingEntityFlashColors) {
             guard let node = entityNodes[uid] else { continue }
-            // Scale bounce
+            let isBoss = state.enemies.first { $0.uid == uid }?.template.isBoss ?? false
+            // Scale bounce — bigger for boss
+            let bounceScale: CGFloat = isBoss ? 1.40 : 1.25
             node.run(SKAction.sequence([
-                SKAction.scale(to: 1.25, duration: 0.05),
-                SKAction.scale(to: 1.0,  duration: 0.12)
+                SKAction.scale(to: bounceScale, duration: 0.05),
+                SKAction.scale(to: 1.0, duration: isBoss ? 0.18 : 0.12)
             ]), withKey: "hitBounce")
-            // Additive color overlay fades out quickly
+            // Additive color overlay
+            let overlayW: CGFloat = isBoss ? TS * 2.2 : TS * 1.5
             let overlay = SKSpriteNode(color: UIColor(hex: colorHex),
-                                       size: CGSize(width: TS * 1.5, height: TS * 2.0))
-            overlay.alpha     = 0.80
-            overlay.zPosition = 3
-            overlay.blendMode = .add
+                                       size: CGSize(width: overlayW, height: overlayW * 1.2))
+            overlay.alpha = isBoss ? 1.0 : 0.80; overlay.zPosition = 3; overlay.blendMode = .add
             node.addChild(overlay)
             overlay.run(SKAction.sequence([
-                SKAction.fadeOut(withDuration: 0.16),
+                SKAction.fadeOut(withDuration: isBoss ? 0.28 : 0.16),
                 SKAction.removeFromParent()
             ]))
+            // Boss: extra ring burst + camera shake
+            if isBoss {
+                spawnBossHitBurst(at: node.position, color: colorHex)
+                shakeCameraNode(intensity: 5, duration: 0.22)
+            }
         }
         state.pendingEntityFlashUIDs.removeAll()
         state.pendingEntityFlashColors.removeAll()
+    }
+
+    private func spawnBossHitBurst(at pos: CGPoint, color: String) {
+        let ring = SKShapeNode(circleOfRadius: TS * 0.5)
+        ring.fillColor   = .clear
+        ring.strokeColor = UIColor(hex: color)
+        ring.lineWidth   = 3; ring.blendMode = .add
+        ring.position    = pos; ring.zPosition = 14
+        fxLayer.addChild(ring)
+        ring.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 3.0, duration: 0.35),
+                SKAction.fadeOut(withDuration: 0.35)
+            ]),
+            SKAction.removeFromParent()
+        ]))
+        for _ in 0..<16 {
+            let r = CGFloat.random(in: 2.5...6)
+            let p = SKShapeNode(circleOfRadius: r)
+            p.fillColor   = UIColor(hex: color); p.strokeColor = .clear
+            p.blendMode   = .add; p.position = pos; p.zPosition = 14
+            fxLayer.addChild(p)
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let dist  = CGFloat.random(in: TS * 0.4...TS * 1.4)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.move(by: CGVector(dx: cos(angle)*dist, dy: sin(angle)*dist), duration: 0.42),
+                    SKAction.fadeOut(withDuration: 0.42),
+                    SKAction.scale(to: 0.1, duration: 0.42)
+                ]),
+                SKAction.removeFromParent()
+            ]))
+        }
+    }
+
+    private func shakeCameraNode(intensity: CGFloat, duration: Double) {
+        let steps = Int(duration / 0.04)
+        var actions: [SKAction] = []
+        for _ in 0..<steps {
+            let dx = CGFloat.random(in: -intensity...intensity)
+            let dy = CGFloat.random(in: -intensity...intensity)
+            actions.append(SKAction.moveBy(x: dx, y: dy, duration: 0.04))
+        }
+        actions.append(contentsOf: [
+            SKAction.move(to: cameraNode.position, duration: 0.04),
+        ])
+        cameraNode.run(SKAction.sequence(actions), withKey: "shake")
     }
 
     // MARK: — Player lunge (attack) and wall bump
@@ -514,6 +570,46 @@ final class GameScene: SKScene {
             SKAction.moveBy(x: lx, y: ly, duration: isWallBump ? 0.05 : 0.07),
             SKAction.moveBy(x: -lx, y: -ly, duration: isWallBump ? 0.09 : 0.11)
         ]), withKey: "lunge")
+    }
+
+    // MARK: — Item pickup burst
+
+    private func spawnPickupBurst(at pos: CGPoint) {
+        let colors: [UIColor] = [UIColor(hex: "#ffee88"), UIColor(hex: "#ffffff"),
+                                  UIColor(hex: "#88ddff"), UIColor(hex: "#ffaa44")]
+        for i in 0..<6 {
+            let r = CGFloat.random(in: 1.5...3.5)
+            let p = SKShapeNode(circleOfRadius: r)
+            p.fillColor   = colors[i % colors.count]
+            p.strokeColor = .clear; p.blendMode = .add
+            p.position    = pos; p.zPosition = 12
+            fxLayer.addChild(p)
+            let angle = CGFloat(i) / 6 * 2 * .pi + CGFloat.random(in: -0.4...0.4)
+            let dist  = CGFloat.random(in: TS * 0.25...TS * 0.65)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.move(by: CGVector(dx: cos(angle)*dist, dy: sin(angle)*dist), duration: 0.32),
+                    SKAction.fadeOut(withDuration: 0.32)
+                ]),
+                SKAction.removeFromParent()
+            ]))
+        }
+        // Rising sparkle label
+        let star = SKLabelNode(text: "✦")
+        star.fontSize  = 14; star.fontColor = UIColor(hex: "#ffee88")
+        star.position  = pos + CGPoint(x: 0, y: TS * 0.3)
+        star.zPosition = 13; star.blendMode = .add
+        fxLayer.addChild(star)
+        star.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.moveBy(x: 0, y: TS * 0.7, duration: 0.45),
+                SKAction.sequence([
+                    SKAction.wait(forDuration: 0.2),
+                    SKAction.fadeOut(withDuration: 0.25)
+                ])
+            ]),
+            SKAction.removeFromParent()
+        ]))
     }
 
     // MARK: — Projectile trail
@@ -649,21 +745,40 @@ final class GameScene: SKScene {
         case .wall:
             let base = SKSpriteNode(texture: wallTex, size: size)
             base.zPosition = 0
+            base.color = UIColor(hex: "#334466"); base.colorBlendFactor = 0.25
             container.addChild(base)
+            // Thin bright edge line on top — creates depth separation from floor
+            let edge = SKSpriteNode(color: UIColor(hex: "#6688aa").withAlphaComponent(0.55),
+                                    size: CGSize(width: TS, height: 1.5))
+            edge.position  = CGPoint(x: 0, y: TS * 0.48)
+            edge.zPosition = 0.2
+            container.addChild(edge)
 
         case .secret:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            base.alpha = 0.7
-            container.addChild(base)
+            base.zPosition = 0; base.alpha = 0.65; container.addChild(base)
+            // Faint blue shimmer — subtle hint if looking carefully
+            let shimmer = SKShapeNode(rect: CGRect(x: -TS*0.42, y: -TS*0.42, width: TS*0.84, height: TS*0.84))
+            shimmer.fillColor   = UIColor(hex: "#1133cc").withAlphaComponent(0.12)
+            shimmer.strokeColor = UIColor(hex: "#4466ee").withAlphaComponent(0.40)
+            shimmer.lineWidth   = 0.8; shimmer.zPosition = 0.5; shimmer.blendMode = .add
+            container.addChild(shimmer)
+            shimmer.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.7, duration: 2.0),
+                SKAction.fadeAlpha(to: 0.05, duration: 2.0)
+            ])))
 
         case .door:
             let base = SKSpriteNode(texture: floorTex, size: size)
-            base.zPosition = 0
-            container.addChild(base)
+            base.zPosition = 0; container.addChild(base)
             let obj = SKSpriteNode(texture: loadTexture("door"), size: size)
-            obj.zPosition = 0.5
-            container.addChild(obj)
+            obj.zPosition = 0.5; container.addChild(obj)
+            // Amber border frame — makes doors clearly distinguishable
+            let frame = SKShapeNode(rect: CGRect(x: -TS*0.46, y: -TS*0.46, width: TS*0.92, height: TS*0.92), cornerRadius: 2)
+            frame.fillColor   = UIColor(hex: "#aa7722").withAlphaComponent(0.10)
+            frame.strokeColor = UIColor(hex: "#cc9933").withAlphaComponent(0.72)
+            frame.lineWidth   = 1.5; frame.zPosition = 0.7
+            container.addChild(frame)
 
         case .stairs:
             let base = SKSpriteNode(texture: floorTex, size: size)
